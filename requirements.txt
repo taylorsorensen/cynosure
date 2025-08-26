@@ -1,0 +1,7 @@
+ollama
+chromadb
+websockets
+kokoro>=0.9.4
+soundfile
+pyaudio  # For Vosk STT
+vosk

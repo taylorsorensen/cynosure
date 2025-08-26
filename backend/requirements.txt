@@ -1,0 +1,6 @@
+ 
+ollama
+chromadb
+speechrecognition
+pyttsx3
+websockets  # For WebSocket server
