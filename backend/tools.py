@@ -1,15 +1,12 @@
-# tools.py — path-tolerant file helpers for voice use
 import os, re, json
 from typing import Optional, List, Tuple, Dict, Any
 
 # ---- Config / sandbox -------------------------------------------------------
-# All file operations are confined under this root.
 FS_ROOT  = os.path.abspath(os.environ.get("ELYSIA_FS_ROOT", os.getcwd()))
 WORKDIR  = os.path.abspath(os.environ.get("ELYSIA_WORKDIR", os.path.join(FS_ROOT, "workspace")))
 os.makedirs(WORKDIR, exist_ok=True)
 MACRO_PATH = os.path.join(WORKDIR, "macros.json")
 
-# Common dir hints for voice: "desktop", "downloads", "repo", "backend", etc.
 def _dir_hint_map() -> dict:
     home = os.path.expanduser("~")
     guesses = {
@@ -30,9 +27,7 @@ def _dir_hint_map() -> dict:
     }
     return {k: os.path.abspath(v) for k, v in guesses.items() if v and os.path.isdir(v)}
 
-# ---- Normalization / safety -------------------------------------------------
 def _normalize_spoken_path(s: str) -> str:
-    # handle STT artifacts: "dot", "slash", etc.
     s = " " + s.strip().lower() + " "
     s = s.replace(" dot ", ".").replace(" period ", ".").replace(" point ", ".")
     s = s.replace(" slash ", "/").replace(" backslash ", "/").replace(" forward slash ", "/")
@@ -53,10 +48,6 @@ def _join_safe(base: str, *parts: str) -> str:
     return path
 
 def _parse_dir_hint(filename: str) -> Tuple[str, Optional[str]]:
-    """
-    Accept 'notes in desktop', 'report to workspace', 'foo/bar',
-    returns (basename_or_relpath, hint_dir_abspath|None)
-    """
     m = re.search(r"\b(in|to|into|under|on)\s+([a-z0-9_\-\/]+)\b", filename, re.I)
     hint = None
     if m:
@@ -64,108 +55,57 @@ def _parse_dir_hint(filename: str) -> Tuple[str, Optional[str]]:
         hint_key = m.group(2).lower()
         hint_map = _dir_hint_map()
         hint = hint_map.get(hint_key)
-        # allow subpath hints like "repo/backend"
         if not hint and "/" in hint_key:
             head, *tail = hint_key.split("/")
             root = hint_map.get(head)
             if root:
                 hint = os.path.join(root, *tail)
                 if not os.path.isdir(hint):
-                    os.makedirs(hint, exist_ok=True)
-    return filename.strip(), os.path.abspath(hint) if hint else None
+                    hint = None
+    return filename, hint
 
-def _ensure_txt(name: str) -> str:
-    # If no extension, default to .txt for voice UX
-    return name if "." in os.path.basename(name) else f"{name}.txt"
-
-def _resolve_target(filename: str, create_dirs: bool = True) -> str:
-    # normalize voice-y strings and optional dir hint phrase
-    filename = _normalize_spoken_path(filename)
-    filename, hint_dir = _parse_dir_hint(filename)
-    filename = filename.strip().strip('"').strip("'")
-    filename = filename.replace(" ", "_")  # safer default for voice input
-
-    # allow relative subpaths like "notes/idea"
-    rel = filename
-    if not any(sep in filename for sep in ("/", os.sep)):
-        rel = _ensure_txt(filename)
-
-    base = hint_dir if hint_dir else WORKDIR
-    if create_dirs:
-        os.makedirs(base, exist_ok=True)
-        # also create any subfolders in rel
-        subdir = os.path.dirname(rel)
-        if subdir:
-            os.makedirs(_join_safe(base, subdir), exist_ok=True)
-
-    return _join_safe(base, rel)
-
-def _find_candidates(query: str, limit: int = 10) -> List[str]:
-    """Fuzzy search within FS_ROOT for files that match query (case-insensitive)."""
-    q = _normalize_spoken_path(query)
-    q = q.strip().strip('"').strip("'")
-    hits: List[str] = []
-    for root, _, files in os.walk(FS_ROOT):
+def _find_candidates(name: str, limit: int = 5) -> List[str]:
+    name = _normalize_spoken_path(name).lower()
+    cands = []
+    for root, _, files in os.walk(FS_ROOT, topdown=True):
         for f in files:
-            p = os.path.join(root, f)
-            if len(hits) >= limit:
-                break
-            if q in f.lower():
-                hits.append(p)
-    return hits
+            if name in f.lower():
+                cands.append(os.path.join(root, f))
+                if len(cands) >= limit:
+                    return cands
+    return cands
 
-# ---- Tools ------------------------------------------------------------------
-def create_file(filename: Optional[str] = None, content: Optional[str] = None, **kwargs) -> str:
-    """
-    Create or overwrite a text file. Voice-friendly path handling.
-    Accepts aliases: filename|path|name|file , content|text|body|data|contents
-    """
-    # accept common aliases from tool_code
-    if filename in (None, ""):
-        filename = _pop_any(kwargs, "path", "name", "file", "filepath", "file_path", "target")
-    if content is None:
-        content = _pop_any(kwargs, "text", "body", "data", "contents", "value")
-    if filename in (None, ""):
-        return "ERROR: missing filename"
-    if content is None:
-        content = ""
-
+def create_file(filename: str, content: str = "", overwrite: bool = False) -> str:
     try:
-        path = _resolve_target(filename, create_dirs=True)
-        if os.path.exists(path):
-            os.replace(path, f"{path}.bak")
-        with open(path, "w", encoding="utf-8") as f:
+        filename = _normalize_spoken_path(filename)
+        filename, hint = _parse_dir_hint(filename)
+        base = hint if hint else WORKDIR
+        path = _join_safe(base, filename)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        mode = "w" if overwrite else "x"
+        with open(path, mode, encoding="utf-8") as f:
             f.write(content)
-        return f"OK: wrote {len(content)} bytes to {os.path.relpath(path, FS_ROOT)}"
+        rel = os.path.relpath(path, FS_ROOT)
+        return f"OK: created {rel}"
+    except FileExistsError:
+        return "ERROR: file exists (use overwrite=true to replace)"
     except Exception as e:
         return f"ERROR: {type(e).__name__}: {e}"
 
-def read_file(filename: Optional[str] = None, max_bytes: Optional[int] = 200_000, **kwargs) -> str:
-    """
-    Read a file by name, relative path, or fuzzy name (no exact path needed).
-    Accepts aliases: filename|path|name|file
-    """
-    if filename in (None, ""):
-        filename = _pop_any(kwargs, "path", "name", "file", "filepath", "file_path", "target")
-    if filename in (None, ""):
-        return "ERROR: missing filename"
-
+def read_file(filename: str, max_bytes: Optional[int] = 1024 * 10) -> str:
     try:
-        try:
-            path = _resolve_target(filename, create_dirs=False)
-        except Exception:
-            path = None
-
-        if not path or not os.path.exists(path):
-            if "/" not in filename and "\\" not in filename:
-                cands = _find_candidates(filename, limit=3)
-                if not cands:
-                    return f"ERROR: file not found: {filename}"
+        filename = _normalize_spoken_path(filename)
+        filename, hint = _parse_dir_hint(filename)
+        if not filename:
+            return "ERROR: no filename given"
+        path = _join_safe(WORKDIR, filename)
+        if not os.path.exists(path):
+            cands = _find_candidates(filename, limit=1)
+            if cands:
                 path = cands[0]
             else:
-                return f"ERROR: file not found: {filename}"
-
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+                return f"ERROR: not found: {filename}"
+        with open(path, "r", encoding="utf-8") as f:
             data = f.read()
         if max_bytes is not None and len(data.encode("utf-8")) > max_bytes:
             return data[:max_bytes] + "\n\n[TRUNCATED]"
@@ -174,10 +114,6 @@ def read_file(filename: Optional[str] = None, max_bytes: Optional[int] = 200_000
         return f"ERROR: {type(e).__name__}: {e}"
 
 def list_dir(path: str = "") -> str:
-    """
-    List files in a directory. Accepts hints like 'workspace', 'repo/backend',
-    or empty to list WORKDIR.
-    """
     try:
         if not path:
             base = WORKDIR
@@ -197,10 +133,7 @@ def list_dir(path: str = "") -> str:
     except Exception as e:
         return f"ERROR: {type(e).__name__}: {e}"
 
-def find_file(name: str, limit: int = 10) -> str:
-    """
-    Fuzzy find files anywhere under the sandbox root.
-    """
+def find_file(name: str, limit: int = 5) -> str:
     try:
         cands = _find_candidates(name, limit=limit)
         if not cands:
@@ -209,13 +142,13 @@ def find_file(name: str, limit: int = 10) -> str:
     except Exception as e:
         return f"ERROR: {type(e).__name__}: {e}"
 
-# --- MACRO TIME --------------------------------------------------------------
 class MacroStore:
     def __init__(self, path: str = MACRO_PATH):
         self.path = path
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self._macros: Dict[str, Any] = {}
         self._load()
+        self.max_macros = 10
 
     def _load(self):
         try:
@@ -230,11 +163,12 @@ class MacroStore:
             json.dump(self._macros, f, indent=2)
 
     def add(self, name: str, steps: list) -> str:
+        if len(self._macros) >= self.max_macros:
+            return "ERROR: macro limit reached—remove some first"
         if not name or not isinstance(name, str):
             return "ERROR: invalid macro name"
         if not isinstance(steps, list) or not steps:
             return "ERROR: steps must be a non-empty list"
-        # steps are validated at execution time in main (against SAFE_TOOLS)
         self._macros[name] = steps
         self._save()
         return f"OK: macro '{name}' saved with {len(steps)} step(s)"
