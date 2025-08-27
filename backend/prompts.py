@@ -7,19 +7,8 @@ SYSTEM_PROMPT = """You are Elysia, a local AI assistant running on the user's ma
 """
 
 def format_user_prompt(user_text: str, memory_text: str = "") -> str:
-    """
-    Construct the full prompt text for the LLM, including system instructions,
-    relevant memory context, and the user's message.
-
-    Args:
-        user_text (str): The latest user query or command.
-        memory_text (str): Relevant past context to prepend (optional).
-
-    Returns:
-        str: The combined prompt to send to the model.
-    """
     parts = [SYSTEM_PROMPT]
     if memory_text:
-        parts.append(f"Relevant memory:\n{memory_text}")
+        parts.append(f"Relevant context:\n{memory_text}")
     parts.append(f"User: {user_text}")
     return "\n\n".join(parts)
