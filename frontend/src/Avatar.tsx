@@ -6,9 +6,10 @@ interface Props {
 }
 
 const Avatar: React.FC<Props> = ({ event }) => {
-  const [scale, setScale] = useState(1);  // For RMS pulse
+  const [scale, setScale] = useState(1);
   let emoji = '😊';
   switch (event) {
+    case 'idle': emoji = '😌'; break;  // Added for variety
     case 'listening': emoji = '👂'; break;
     case 'thinking': emoji = '🤔'; break;
     case 'speaking': emoji = '🗣️'; break;
@@ -16,10 +17,9 @@ const Avatar: React.FC<Props> = ({ event }) => {
   }
 
   useEffect(() => {
-    // Simulate RMS pulse (integrate real from analyser if needed)
     if (event === 'speaking' || event === 'listening') {
       const interval = setInterval(() => {
-        setScale(1 + Math.random() * 0.1);  // Pulse 0-10%
+        setScale(1 + Math.random() * 0.1);
       }, 100);
       return () => clearInterval(interval);
     }
@@ -27,7 +27,7 @@ const Avatar: React.FC<Props> = ({ event }) => {
   }, [event]);
 
   return (
-    <div style={{ fontSize: '100px', transition: 'transform 0.3s', transform: `scale(${scale})` }}>
+    <div style={{ fontSize: '100px', transition: 'transform 0.1s ease-in-out', transform: `scale(${scale})` }}>
       {emoji}
     </div>
   );
