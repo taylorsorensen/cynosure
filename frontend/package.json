@@ -22,7 +22,7 @@
     ]
   },
   "devDependencies": {
-    "@types/react": "^19.1.10",
-    "@types/react-dom": "^19.1.7"
+    "@types/react": "^18.0.28",  // Downgraded to match React 18 for stability
+    "@types/react-dom": "^18.0.11"
   }
 }
