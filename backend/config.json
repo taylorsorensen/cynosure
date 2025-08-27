@@ -1,6 +1,7 @@
 {
   "tts_voice": "af_heart",
-  "memory_threshold": 0.7,
   "recent_memory_limit": 5,
-  "stt_model_path": "./vosk-model"
+  "stt_model_path": "./vosk-model",
+  "phone_home": false,
+  "memory_url": "http://your_home_ip:port/recall"
 }
