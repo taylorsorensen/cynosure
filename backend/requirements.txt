@@ -1,6 +1,6 @@
- 
 ollama
-chromadb
-speechrecognition
-pyttsx3
-websockets  # For WebSocket server
+websockets
+kokoro>=0.9.4
+soundfile
+pyaudio
+vosk
